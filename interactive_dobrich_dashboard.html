@@ -1,0 +1,299 @@
+<!doctype html>
+<html lang="bg">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Дашборд: Замърсяване в Добрич — публично табло</title>
+  <!-- Leaflet for map -->
+  <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" integrity="sha256-sA+e2HkM0f8a2qG6a5aU6XJvY8/3pJQmGkGk2GCFp5M=" crossorigin=""/>
+  <style>
+    :root{--accent:#2b7cff;--bg:#f7f9fc;--card:#ffffff;--muted:#6b7280}
+    body{font-family:Inter, system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial; margin:0; background:var(--bg); color:#0f172a}
+    header{background:linear-gradient(90deg,var(--accent),#3ddfd6); color:white; padding:18px 24px}
+    header h1{margin:0; font-size:20px}
+    .container{display:grid; grid-template-columns: 360px 1fr; gap:16px; padding:16px}
+    .left{display:flex; flex-direction:column; gap:12px}
+    .card{background:var(--card); border-radius:12px; padding:12px; box-shadow:0 2px 8px rgba(15,23,42,0.06)}
+    .small{font-size:13px; color:var(--muted)}
+    #map{height:420px; border-radius:8px}
+    .kpis{display:grid; grid-template-columns:repeat(2,1fr); gap:8px}
+    .kpi{padding:10px; border-radius:8px; background:linear-gradient(180deg,rgba(43,124,255,0.06),transparent)}
+    .chart{height:200px}
+    footer{padding:12px 16px; font-size:13px; color:var(--muted)}
+    .row{display:flex; gap:8px; align-items:center}
+    .btn{background:var(--accent); color:white; border:none; padding:8px 10px; border-radius:8px; cursor:pointer}
+    .muted{color:var(--muted)}
+    @media(max-width:900px){.container{grid-template-columns:1fr;}.left{order:2}}
+  </style>
+</head>
+<body>
+  <header>
+    <h1>Дашборд — Замърсяването в Добрич (публично табло)</h1>
+    <div class="small">Актуални данни: въздух, шум, разделно събиране, карта и предложения</div>
+  </header>
+
+  <div class="container">
+    <aside class="left">
+      <div class="card">
+        <h3>Ключови показатели</h3>
+        <div class="kpis" style="margin-top:8px">
+          <div class="kpi"><div class="small">AQI</div><div id="kpi-aqi" style="font-size:22px">---</div><div class="small" id="kpi-aqi-desc"></div></div>
+          <div class="kpi"><div class="small">Среден шум (дб)</div><div id="kpi-noise" style="font-size:22px">---</div><div class="small">по наблюдения</div></div>
+          <div class="kpi"><div class="small">Разделно събиране</div><div id="kpi-recycle" style="font-size:22px">---</div><div class="small">% (оценка)</div></div>
+          <div class="kpi"><div class="small">Проблемни зони</div><div id="kpi-hotspots" style="font-size:22px">---</div><div class="small">на база данни</div></div>
+        </div>
+      </div>
+
+      <div class="card">
+        <h3>Настройки и източници</h3>
+        <div class="small">Изберете източник за качеството на въздуха (AQI):</div>
+        <div style="margin-top:8px" class="row">
+          <select id="aqi-source">
+            <option value="openaq">OpenAQ (без ключ)</option>
+            <option value="iqair">IQAir (API key required)</option>
+            <option value="sample" selected>Учебни/примерни данни</option>
+          </select>
+          <button class="btn" id="btn-refresh">Обнови</button>
+        </div>
+        <div style="margin-top:8px" class="small">
+          За IQAir добавете своя API ключ в полето и натиснете "Apply".
+        </div>
+        <div style="margin-top:8px" class="row">
+          <input id="iqair-key" placeholder="IQAir API key (по избор)" style="flex:1;padding:8px;border-radius:8px;border:1px solid #e6eef8" />
+          <button class="btn" id="apply-key">Apply</button>
+        </div>
+      </div>
+
+      <div class="card">
+        <h3>Съвети и предложения</h3>
+        <ul>
+          <li>Насърчавайте разделното събиране в училището и квартала.</li>
+          <li>Подсилете градския транспорт и споделените пътувания.</li>
+          <li>Създайте зелени коридори и дървесна засадка в проблемни зони.</li>
+          <li>Провеждайте кампании за почистване и мониторинг с ученици.</li>
+        </ul>
+      </div>
+
+      <div class="card">
+        <h3>Екип и контакт</h3>
+        <div class="small">Проект: Ученически форум — Добрич</div>
+        <div class="small">За промени: включете реални данни в JSON формат или използвайте OpenAQ/IQAir.</div>
+      </div>
+    </aside>
+
+    <main>
+      <div class="card">
+        <div style="display:flex; justify-content:space-between; align-items:center">
+          <h3>Карта на замърсяването — Добрич</h3>
+          <div class="small">Легенда: цветове по AQI / шумови точки / места за отпадъци</div>
+        </div>
+        <div id="map"></div>
+      </div>
+
+      <div class="card" style="margin-top:12px; display:grid; grid-template-columns:1fr 380px; gap:12px">
+        <div>
+          <h3>Времеви графики</h3>
+          <canvas id="chart-aqi" class="chart"></canvas>
+          <canvas id="chart-noise" class="chart" style="margin-top:12px"></canvas>
+        </div>
+        <div>
+          <h3>Разделно събиране</h3>
+          <canvas id="chart-recycle" style="height:260px"></canvas>
+          <div style="margin-top:8px" class="small">Можете да въведете реални проценти в панела за настройки (качване на JSON/CSV).</div>
+        </div>
+      </div>
+
+    </main>
+  </div>
+
+  <footer>
+    Дашборд — примерна интерактивна страница за публично табло. Можете да редактирате източниците, за да показват реални данни.
+  </footer>
+
+  <!-- Скриптове -->
+  <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js" integrity="sha256-o9N1j8k8S0v1sQ1VYwqXk4g8o6b2hV7KU1g6jQYf3hM=" crossorigin=""></script>
+  <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+  <script>
+    // ---------- Примерни (fallback) данни ----------
+    const sampleAQI = [
+      {time: '2025-10-29 00:00', aqi: 72}, {time: '2025-10-29 03:00', aqi: 68},
+      {time: '2025-10-29 06:00', aqi: 75}, {time: '2025-10-29 09:00', aqi: 85},
+      {time: '2025-10-29 12:00', aqi: 90}, {time: '2025-10-29 15:00', aqi: 78},
+      {time: '2025-10-29 18:00', aqi: 82}, {time: '2025-10-29 21:00', aqi: 70}
+    ];
+
+    const sampleNoise = [
+      {zone:'Център', dB:66, lat:43.5619, lon:27.8288},
+      {zone:'Добротица', dB:59, lat:43.5650, lon:27.8333},
+      {zone:'Балик', dB:62, lat:43.5530, lon:27.8380},
+      {zone:'Индустриална зона', dB:72, lat:43.5740, lon:27.8450}
+    ];
+
+    const sampleRecycle = {recycle_percent: 34, paper: 42, plastic: 28, glass: 30};
+
+    // ---------- Инициализация на картата ----------
+    const map = L.map('map').setView([43.5630, 27.8333], 13);
+    L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+      maxZoom: 19,
+      attribution: '© OpenStreetMap contributors'
+    }).addTo(map);
+
+    // добавяне на маркери за шумови зони
+    const noiseLayer = L.layerGroup().addTo(map);
+    function drawNoiseMarkers(data){
+      noiseLayer.clearLayers();
+      data.forEach(item => {
+        const color = item.dB > 70 ? '#b91c1c' : (item.dB>60? '#f59e0b' : '#10b981');
+        const circle = L.circleMarker([item.lat, item.lon], {radius:10, fillColor:color, color:'#333', weight:1, fillOpacity:0.8}).bindPopup(`<b>${item.zone}</b><br/>${item.dB} dB`);
+        circle.addTo(noiseLayer);
+      })
+    }
+
+    // добавяне на пробни точки на AQI (heatmap-like markers)
+    const aqiLayer = L.layerGroup().addTo(map);
+    const sampleAqiPoints = [
+      {lat:43.5645, lon:27.8300, aqi:85, name:'Център'},
+      {lat:43.5660, lon:27.8380, aqi:70, name:'Добротица'},
+      {lat:43.5520, lon:27.8350, aqi:95, name:'Източен квартал'},
+      {lat:43.5730, lon:27.8400, aqi:60, name:'Парк'}
+    ];
+    function drawAqiPoints(points){
+      aqiLayer.clearLayers();
+      points.forEach(p => {
+        const col = p.aqi>150? '#7e0225' : p.aqi>100? '#e11d48' : p.aqi>50? '#f59e0b' : '#10b981';
+        L.circle([p.lat,p.lon], {radius:80, color:col, fillOpacity:0.25}).bindPopup(`<b>${p.name}</b><br/>AQI: ${p.aqi}`).addTo(aqiLayer);
+      })
+    }
+
+    // ---------- KPI панели ----------
+    function updateKPIs(aqiValue, noiseAvg, recyclePercent, hotspotsCount){
+      document.getElementById('kpi-aqi').innerText = aqiValue===null? '—' : aqiValue;
+      const desc = aqiValue===null? '-' : (aqiValue<=50? 'Good' : aqiValue<=100? 'Moderate' : aqiValue<=150? 'Unhealthy for sensitive' : 'Unhealthy');
+      document.getElementById('kpi-aqi-desc').innerText = desc;
+      document.getElementById('kpi-noise').innerText = noiseAvg? noiseAvg+ ' dB' : '—';
+      document.getElementById('kpi-recycle').innerText = recyclePercent? recyclePercent+ ' %' : '—';
+      document.getElementById('kpi-hotspots').innerText = hotspotsCount? hotspotsCount : '—';
+    }
+
+    // ---------- Chart.js графики ----------
+    const ctxAqi = document.getElementById('chart-aqi').getContext('2d');
+    const chartAqi = new Chart(ctxAqi, {
+      type: 'line', data: {labels: sampleAQI.map(d=>d.time), datasets:[{label:'AQI', data: sampleAQI.map(d=>d.aqi), tension:0.3, fill:true}]}, options:{responsive:true}
+    });
+
+    const ctxNoise = document.getElementById('chart-noise').getContext('2d');
+    const chartNoise = new Chart(ctxNoise, {
+      type:'bar', data:{labels: sampleNoise.map(d=>d.zone), datasets:[{label:'dB', data: sampleNoise.map(d=>d.dB)}]}, options:{responsive:true}
+    });
+
+    const ctxRecycle = document.getElementById('chart-recycle').getContext('2d');
+    const chartRecycle = new Chart(ctxRecycle, {type:'doughnut', data:{labels:['Хартия','Пластмаса','Стъкло'], datasets:[{data:[sampleRecycle.paper, sampleRecycle.plastic, sampleRecycle.glass]}]}, options:{responsive:true}});
+
+    // ---------- Данни и обновяване ----------
+    let currentData = {aqi: sampleAQI, noise: sampleNoise, recycle: sampleRecycle, aqiPoints: sampleAqiPoints};
+
+    function computeNoiseAvg(noiseArr){
+      if(!noiseArr || noiseArr.length===0) return null;
+      const avg = Math.round(noiseArr.reduce((s,i)=>s+i.dB,0)/noiseArr.length);
+      return avg;
+    }
+
+    function refreshAll(){
+      // използваме текущите данни (sample или fetched)
+      drawNoiseMarkers(currentData.noise);
+      drawAqiPoints(currentData.aqiPoints);
+      chartAqi.data.labels = currentData.aqi.map(d=>d.time);
+      chartAqi.data.datasets[0].data = currentData.aqi.map(d=>d.aqi);
+      chartAqi.update();
+      chartNoise.data.labels = currentData.noise.map(d=>d.zone);
+      chartNoise.data.datasets[0].data = currentData.noise.map(d=>d.dB);
+      chartNoise.update();
+      chartRecycle.data.datasets[0].data = [currentData.recycle.paper, currentData.recycle.plastic, currentData.recycle.glass];
+      chartRecycle.update();
+      const latestAqi = currentData.aqi.length? currentData.aqi[currentData.aqi.length-1].aqi : null;
+      updateKPIs(latestAqi, computeNoiseAvg(currentData.noise), currentData.recycle.recycle_percent, currentData.aqiPoints.length);
+    }
+
+    // ---------- Функции за зареждане от OpenAQ (без ключ) ----------
+    async function fetchOpenAQ(city='Dobrich'){
+      try{
+        const url = `https://api.openaq.org/v2/measurements?city=${encodeURIComponent(city)}&limit=100&parameter=pm25`;
+        const res = await fetch(url);
+        const data = await res.json();
+        if(!data || !data.results) throw new Error('No data');
+        // агрегиране по час
+        const arr = data.results.slice(0,24).map(r => ({time: r.date.local, aqi: Math.round(r.value)}));
+        // map points (use first few locations)
+        const points = data.results.slice(0,6).map(r=>({lat:r.coordinates.latitude, lon:r.coordinates.longitude, aqi:Math.round(r.value*1.0), name:r.location}));
+        currentData.aqi = arr.length? arr : sampleAQI;
+        currentData.aqiPoints = points.length? points : sampleAqiPoints;
+        refreshAll();
+      }catch(e){console.warn('OpenAQ fetch failed', e); alert('Неуспешно зареждане от OpenAQ. Използват се локални данни.');}
+    }
+
+    // ---------- Бутон Refresh ----------
+    document.getElementById('btn-refresh').addEventListener('click', ()=>{
+      const src = document.getElementById('aqi-source').value;
+      if(src==='openaq') fetchOpenAQ('Dobrich');
+      else if(src==='sample') { currentData.aqi = sampleAQI; currentData.aqiPoints = sampleAqiPoints; refreshAll(); }
+      else if(src==='iqair'){
+        const key = document.getElementById('iqair-key').value.trim();
+        if(!key){ alert('Моля въведете IQAir API ключ или изберете друг източник.'); return; }
+        fetchIQAirDobrich(key);
+      }
+    });
+
+    document.getElementById('apply-key').addEventListener('click', ()=>{
+      const key = document.getElementById('iqair-key').value.trim();
+      if(!key){ alert('Въведете ключ.'); return; }
+      alert('IQAir ключът ще бъде използван при избор на IQAir като източник.');
+    });
+
+    // ---------- IQAir fetch (пример) ----------
+    async function fetchIQAirDobrich(apiKey){
+      try{
+        // примерен URL (IQAir може да изисква друг endpoint) - потребителят трябва да провери документацията
+        const url = `https://api.airvisual.com/v2/city?city=Dobrich&state=Dobrich&country=Bulgaria&key=${apiKey}`;
+        const res = await fetch(url);
+        const data = await res.json();
+        if(!data || !data.data) throw new Error('No IQAir data');
+        // преобразуваме в примерен формат
+        const aqiUS = data.data.current.pollution.aqius;
+        currentData.aqi = [{time: new Date().toISOString(), aqi: aqiUS}];
+        currentData.aqiPoints = [{lat:43.5630, lon:27.8333, aqi:aqiUS, name:'Dobrich station'}];
+        refreshAll();
+      }catch(e){console.warn(e); alert('IQAir заявката не успя — проверете API ключа и документацията.');}
+    }
+
+    // Инициално обновяване
+    refreshAll();
+
+    // ---------- Поддръжка за качване на локални файлове (JSON/CSV) ----------
+    // (За по-лесно интегриране от местната администрация)
+    async function handleLocalUpload(file){
+      const text = await file.text();
+      try{
+        if(file.name.endsWith('.json')){
+          const obj = JSON.parse(text);
+          // очаквани ключове: aqi (array), noise (array), recycle (object), aqiPoints (array)
+          currentData = {...currentData, ...obj};
+          refreshAll();
+          alert('Локалните данни са заредени.');
+        } else {
+          alert('Качете JSON файл със структура: {aqi:[], noise:[], recycle:{}, aqiPoints:[]}');
+        }
+      }catch(e){ alert('Неуспешно четене на файла. Уверете се, че е правилен JSON.'); }
+    }
+
+    // drag & drop area (basic)
+    const mapEl = document.getElementById('map');
+    mapEl.addEventListener('dragover', (e)=>{ e.preventDefault(); mapEl.style.opacity = 0.9; });
+    mapEl.addEventListener('dragleave', ()=>{ mapEl.style.opacity = 1; });
+    mapEl.addEventListener('drop', (e)=>{ e.preventDefault(); mapEl.style.opacity = 1; const f = e.dataTransfer.files[0]; if(f) handleLocalUpload(f); });
+
+    // помощна функция: центриране на картата към проблемна зона
+    function zoomToHotspot(lat, lon){ map.setView([lat, lon], 15); }
+
+  </script>
+</body>
+</html>
